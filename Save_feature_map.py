@@ -21,9 +21,11 @@ def mkdirs(paths):
             mkdir(path)
 
 def Save_result(path_save,name_save,data):
+    # 将数据data 存放在名称为name_save.dat 的文件中
     if not os.path.exists(path_save):
         mkdirs(path_save)
     path=os.path.join(path_save,name_save)
+    path=path+'.dat'
     with open(path,'wb') as f:
         pickle.dump(data,f)
 
@@ -40,11 +42,13 @@ def Get_name_from_path(path):
     return name[0]
 
 
-def Save_FeatureMap_image(feature_map,layername:str):
+def Save_FeatureMap_image(feature_map,save_dir,layername:str):
     feature_size=feature_map.shape  #B,C,H,W  in most decase B==1
     img = tensor_to_mat(feature_map)
     for batch in range(feature_size[0]):
-        save_dir = rf'./FeatureMap_Image/batch{batch}/{layername}'
+        # save_dir = rf'./FeatureMap_Image/batch{batch}/{layername}'
+        save_dir = os.path.join(save_dir,layername)
+        # print(save_dir)
         os.makedirs(save_dir, exist_ok=True)
         for n in range(feature_size[1]):
             image_name = rf'{save_dir}/{n}.jpg'
