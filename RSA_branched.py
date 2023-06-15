@@ -17,11 +17,12 @@ import sys
 import time
 
 
-def progress_bar(finished_count, total_count, time_per_step, accumulated_time):
-    percentage = int(finished_count/total_count*100)
+def progress_bar(finished_count, total_count, accumulated_time):
+    scale = finished_count/total_count
+    percentage = int(scale*100)
     finished_str = "▋"*(percentage//2)
     unfinished_str = '.'*(50-percentage//2)
-    ETA = total_count*time_per_step-accumulated_time
+    ETA = accumulated_time*(1-scale)/scale
     print(f"Progress: {percentage}% ({finished_count}/{total_count})", f'[{finished_str}->{unfinished_str}]{accumulated_time:.2f}/ETA: {ETA:.2f}', end="\r")
     sys.stdout.flush()
 
@@ -67,28 +68,22 @@ def get_RDM(num_layers, num_imgs, num_tasks, task_dat_name_list):
     for n in range(num_tasks):
         print(f'Calculating on Task {n}...')
         count = 0
-        task_start = time.time()
+        start = time.time()
         for i in range(num_imgs-1):
-            start = time.time()
             filepath_i = task_dat_name_list[n][i]
             dat_i = Load_result(filepath_i)
-            load_time1 = time.time()-start
             assert len(dat_i) == num_layers, f'The Image {i} has a different number of model layers than the other images'
             keys = list(dat_i.keys())
             for j in range(i+1, num_imgs):
-                start = time.time()
                 filepath_j = task_dat_name_list[n][j]
                 dat_j = Load_result(filepath_j)
-                load_time2 = time.time()-start
-                time_delta = (load_time1+load_time2)/num_layers
                 assert len(dat_j) == num_layers, f'The Image {i} has a different number of model layers than the other images'
                 for d in range(num_layers):
-                    start = time.time()
                     RDM_for_layers[n, d, :, :] = np.eye(num_imgs)  # The correlation coefficient on the diagonal is 1.
                     RDM_for_layers[n, d, :, :] = np.corrcoef(dat_i[keys[d]].cpu().detach().numpy().ravel(),  # Only the upper triangular part is filled due to symmetry.
                                                    dat_j[keys[d]].cpu().detach().numpy().ravel())[0][1]
                     count = count+1
-                    progress_bar(count, int((num_imgs-1)*num_imgs/2*num_layers), time.time()-start+time_delta, time.time()-task_start)
+                    progress_bar(count, int((num_imgs-1)*num_imgs/2*num_layers), time.time()-start)
         print('\n')
         print(f'Task {n} finished!')
     print('RDMs obtained!')
@@ -138,6 +133,8 @@ def get_affinity_tensor(task_dat_path_list):
     RDM_for_layers = get_RDM(num_layers, num_imgs, num_tasks, task_dat_name_list)
     print('Getting an affinity tensor...')
     affinity_tensor = np.zeros((num_layers, num_tasks, num_tasks), np.float32)
+    count = 0
+    start = time.time()
     for d in range(num_layers):
         affinity_tensor[d, :, :] = np.eye(num_tasks)
         RDM_for_layers_triu_list = []
@@ -148,7 +145,10 @@ def get_affinity_tensor(task_dat_path_list):
             for j in range(i+1, num_tasks):
                 affinity_tensor[d, i, j] = spearman_corr(RDM_for_layers_triu_list[i],
                                                           RDM_for_layers_triu_list[j])
-        print(f'Layer {d} finished!')
+                count = count+1
+                progress_bar(count, int((num_tasks-1)*num_tasks/2*num_layers), time.time()-start)
+    print('\n')
+    print('Affinity tensor obtained!')
     return affinity_tensor
 
 if __name__=='__main__':
