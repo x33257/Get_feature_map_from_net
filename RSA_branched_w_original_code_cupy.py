@@ -14,6 +14,7 @@ from Save_feature_map import Load_result
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import cupy as np
+import numpy
 import sys
 import time
 
@@ -79,8 +80,9 @@ def get_RDM(num_layers, num_imgs, num_tasks, task_dat_name_list):
             for i in range(num_imgs):
                 feature = np.asarray(Load_result(task_dat_name_list[n][i])[keys[d]].cpu().detach().numpy())
                 features_value[i,:] = feature.ravel()
-            features_value = (features_value - np.mean(features_value, axis=0))
-            RDM_for_layers[n, d, :, :] = 1-np.corrcoef(features_value)
+            features_value = np.asnumpy(features_value)
+            features_value = features_value - numpy.mean(features_value, axis=0)
+            RDM_for_layers[n, d, :, :] = np.asarray(1-numpy.corrcoef(features_value))
             count = count+1
             progress_bar(count, num_layers, time.time()-start)
         print('\n')

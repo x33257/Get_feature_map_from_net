@@ -12,6 +12,7 @@ affinity_tensor = get_affinity_tensor(task_dat_path_list)
 
 from Save_feature_map import Load_result
 import os
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import numpy as np
 import sys
 import time
@@ -77,16 +78,11 @@ def get_RDM(num_layers, num_imgs, num_tasks, task_dat_name_list):
             features_value = np.zeros((num_imgs,feature_0.shape[0]))
             for i in range(num_imgs):
                 feature = Load_result(task_dat_name_list[n][i])[keys[d]].cpu().detach().numpy()
-                feature_reshaped = feature.ravel()
-                features_value[i,:] = feature_reshaped
-            features_value = (features_value - np.mean(features_value,axis=0))
-            for i in range(num_imgs-1):
-                for j in range(i+1, num_imgs):
-                    feature_i = features_value[i]
-                    feature_j = features_value[j]
-                    RDM_for_layers[n, d, i, j] = 1-np.corrcoef(feature_i,feature_j)[0][1]
-                    count = count+1
-                    progress_bar(count, int((num_imgs-1)*num_imgs/2*num_layers), time.time()-start)
+                features_value[i,:] = feature.ravel()
+            features_value = features_value - np.mean(features_value,axis=0)
+            RDM_for_layers[n, d, :, :] = 1-np.corrcoef(features_value)
+            count = count+1
+            progress_bar(count, num_layers, time.time()-start)
         print('\n')
         print(f'Task {n} finished!')
     print('RDMs obtained!')
@@ -118,6 +114,17 @@ def feature_maps_pearson(dat_path1, dat_path2):
         res_vec[d] = np.corrcoef(dat_1[keys[d]].cpu().detach().numpy().ravel(), dat_2[keys[d]].cpu().detach().numpy().ravel())[0][1]
         progress_bar(d+1, num_layers, time.time()-start)
     return res_vec
+
+def fast_spearman_corr(array):
+    num_tasks = array.shape[0]
+    res = np.zeros((num_tasks, num_tasks))
+    tmp1 = np.tile(array[0],(num_tasks-1,1))
+    tmp2 = array[1:]
+    for i in range(num_tasks-2):
+        tmp1 = np.append(tmp1, np.tile(array[i+1], (num_tasks-2-i, 1)), axis=0)
+        tmp2 = np.append(tmp2, array[i+2:], axis=0)
+    res[np.triu_indices(num_tasks, 1)] = 1-6*(np.linalg.norm(tmp1-tmp2, ord=2, axis=1)**2)/array.shape[1]/(array.shape[1]**2-1)
+    return res
 
 def get_affinity_tensor(task_dat_path_list):
     """Get a ndarray of affinity tensor using given parameters.
@@ -152,16 +159,12 @@ def get_affinity_tensor(task_dat_path_list):
     count = 0
     start = time.time()
     for d in range(num_layers):
-        affinity_tensor[d, :, :] = np.eye(num_tasks)
-        RDM_for_layers_triu_list = []
+        RDM_for_layers_triu = np.zeros((num_tasks, num_imgs*(num_imgs-1)//2), dtype=np.float32)
         for n in range(num_tasks):
-            RDM_for_layers_triu_list.append(RDM_for_layers[n, d, :, :][np.triu_indices(num_imgs, 1)])  # Extract the upper triangle of each RDM to form a list.
-        for i in range(num_tasks-1):
-            for j in range(i+1, num_tasks):
-                affinity_tensor[d, i, j] = spearman_corr(RDM_for_layers_triu_list[i],
-                                                          RDM_for_layers_triu_list[j])
-                count = count+1
-                progress_bar(count, int((num_tasks-1)*num_tasks/2*num_layers), time.time()-start)
+            RDM_for_layers_triu[n, :] = RDM_for_layers[n, d, :, :][np.triu_indices(num_imgs, 1)]  # Extract the upper triangle of each RDM to form a list.
+        affinity_tensor[d, :, :] = fast_spearman_corr(RDM_for_layers_triu)
+        count = count+1
+        progress_bar(count, num_layers, time.time()-start)
     print('\n')
     print('Affinity tensor obtained!')
     return affinity_tensor
